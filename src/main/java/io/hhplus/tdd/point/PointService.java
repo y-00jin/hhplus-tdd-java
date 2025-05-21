@@ -5,12 +5,15 @@ import io.hhplus.tdd.database.UserPointTable;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 public class PointService {
 
     private final UserPointTable userPointTable;
     private final PointHistoryTable pointHistoryTable;
+    private final ConcurrentHashMap<Long, ReentrantLock> userLocks = new ConcurrentHashMap<>();
 
     private static final long MAX_POINT = 2_000_000L;   // 최대 잔고
 
@@ -23,6 +26,14 @@ public class PointService {
     public PointService(UserPointTable userPointTable, PointHistoryTable pointHistoryTable) {
         this.userPointTable = userPointTable;
         this.pointHistoryTable = pointHistoryTable;
+    }
+
+    /**
+     * # Method설명 : 사용자ID 별로 락 관리
+     * # MethodName : getLockForUser
+     **/
+    private ReentrantLock getLockForUser(long userId) {
+        return userLocks.computeIfAbsent(userId, k -> new ReentrantLock());
     }
 
 
@@ -53,23 +64,29 @@ public class PointService {
             throw new IllegalArgumentException("충전 금액은 1원 이상이어야 합니다.");
         }
 
-        // 특정 유저의 포인트 조회
-        UserPoint userPoint = userPointTable.selectById(userId);
+        ReentrantLock lock = getLockForUser(userId);
+        lock.lock();
+        try {
+            // 특정 유저의 포인트 조회
+            UserPoint userPoint = userPointTable.selectById(userId);
 
-        // 충전 포인트
-        long newPoint = userPoint.point() + amount;
+            // 충전 포인트
+            long newPoint = userPoint.point() + amount;
 
-        if(newPoint > MAX_POINT){
-            throw new IllegalArgumentException("충전 시 최대 잔고("+ MAX_POINT +")를 초과할 수 없습니다.");
+            if (newPoint > MAX_POINT) {
+                throw new IllegalArgumentException("충전 시 최대 잔고(" + MAX_POINT + ")를 초과할 수 없습니다.");
+            }
+
+            // 포인트 충전
+            UserPoint updatedUserPoint = userPointTable.insertOrUpdate(userId, newPoint);
+
+            // 포인트 충전 내역 저장
+            pointHistoryTable.insert(userId, amount, TransactionType.CHARGE, System.currentTimeMillis());
+
+            return updatedUserPoint;
+        } finally {
+            lock.unlock();
         }
-
-        // 포인트 충전
-        UserPoint updatedUserPoint = userPointTable.insertOrUpdate(userId, newPoint);
-
-        // 포인트 충전 내역 저장
-        pointHistoryTable.insert(userId, amount, TransactionType.CHARGE, System.currentTimeMillis());
-
-        return updatedUserPoint;
     }
 
     /**
@@ -82,19 +99,25 @@ public class PointService {
             throw new IllegalArgumentException("사용 포인트는 1원 이상이어야 합니다.");
         }
 
-        // 특정 유저의 포인트 조회
-        UserPoint userPoint = userPointTable.selectById(userId);
-        if (userPoint.point() < amount) {     // 보유 포인트가 사용할 포인트보다 적은 경우 사용 불가능
-            throw new IllegalArgumentException("잔고가 부족해 포인트를 사용할 수 없습니다.");
+        ReentrantLock lock = getLockForUser(userId);
+        lock.lock();
+
+        try {
+            // 특정 유저의 포인트 조회
+            UserPoint userPoint = userPointTable.selectById(userId);
+            if (userPoint.point() < amount) {     // 보유 포인트가 사용할 포인트보다 적은 경우 사용 불가능
+                throw new IllegalArgumentException("잔고가 부족해 포인트를 사용할 수 없습니다.");
+            }
+
+            // 포인트 사용
+            UserPoint updatedUserPoint = userPointTable.insertOrUpdate(userId, userPoint.point() - amount);
+
+            // 포인트 사용 내역 저장
+            pointHistoryTable.insert(userId, amount, TransactionType.USE, System.currentTimeMillis());
+
+            return updatedUserPoint;
+        }finally {
+            lock.unlock();
         }
-
-        // 포인트 사용
-        UserPoint updatedUserPoint = userPointTable.insertOrUpdate(userId, userPoint.point() - amount);
-
-        // 포인트 사용 내역 저장
-        pointHistoryTable.insert(userId, amount, TransactionType.USE, System.currentTimeMillis());
-
-        return updatedUserPoint;
     }
-
 }
