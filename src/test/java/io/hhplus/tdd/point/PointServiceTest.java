@@ -35,16 +35,24 @@ public class PointServiceTest {
     private final long pointHistoryId = 1L;
     private final long maxPoint = 2_000_000L;
 
+    private UserPoint createUserPoint(long point) {
+        return new UserPoint(userId, point, updateMillis);
+    }
+
+    private PointHistory createPointHistory(long id, TransactionType type) {
+        return new PointHistory(id, userId, amount, type, updateMillis);
+    }
+
 
     /**
      * # Method설명 : pointService.point() 테스트
-     * # MethodName : 특정_유저의_포인트_조회_성공
+     * # MethodName : 유저의_포인트_조회_성공
      **/
     @Test
-    void 특정_유저의_포인트_조회_성공() {
+    void 유저의_포인트_조회_성공() {
 
         // # given
-        UserPoint userPoint = new UserPoint(userId, amount, updateMillis);  // 예상 결과값
+        UserPoint userPoint = createUserPoint(amount);  // 예상 결과값
         when(userPointTable.selectById(userId)).thenReturn(userPoint);  // userPointTable의 selectById() 호출 시 예상 결과값(userPoint)을 리턴하도록 설정
 
         // # when
@@ -59,15 +67,15 @@ public class PointServiceTest {
 
     /**
      * # Method설명 : pointService.history() 테스트
-     * # MethodName : 특정_유저의_포인트_내역_조회_성공
+     * # MethodName : 유저의_포인트_내역_조회_성공
      **/
     @Test
-    void 특정_유저의_포인트_내역_조회_성공() {
+    void 유저의_포인트_내역_조회_성공() {
 
         // # given
         List<PointHistory> historyList = List.of(
-                new PointHistory(pointHistoryId, userId, amount, TransactionType.CHARGE, updateMillis),
-                new PointHistory(pointHistoryId, userId, amount, TransactionType.USE, updateMillis)
+                createPointHistory(pointHistoryId, TransactionType.CHARGE),
+                createPointHistory(pointHistoryId + 1, TransactionType.USE)
         );
 
         when(pointHistoryTable.selectAllByUserId(userId)).thenReturn(historyList);  // pointHistoryTable.selectAllByUserId() 호출 시 예상 결과값(historyList)을 리턴하도록 설정
@@ -83,10 +91,10 @@ public class PointServiceTest {
 
     /**
      * # Method설명 : pointService.charge() 테스트 - 실패(충전 금액 0이하)
-     * # MethodName : 포인트_충전_실패_금액_0_이하
+     * # MethodName : 충전금액_0이하_예외발생
      **/
     @Test
-    void 포인트_충전_실패_금액_0_이하() {
+    void 충전금액_0이하_예외발생() {
 
         // # when
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {   //  assertThrows로 IllegalArgumentException 발생 여부 체크
@@ -99,13 +107,13 @@ public class PointServiceTest {
 
     /**
      * # Method설명 : pointService.charge() 테스트 - 실패(최대 잔고 초과)
-     * # MethodName : 포인트_충전_실패_최대잔고_초과
+     * # MethodName : 초대잔고를_초과하여_포인트를_충전_예외발생
      **/
     @Test
-    void 포인트_충전_실패_최대잔고_초과() {
+    void 초대잔고를_초과하여_포인트를_충전_예외발생() {
 
         // # given
-        UserPoint userPoint = new UserPoint(userId, maxPoint, updateMillis);    // 최대 잔고를 보유한 유저
+        UserPoint userPoint = createUserPoint(maxPoint);    // 최대 잔고를 보유한 유저
         when(userPointTable.selectById(userId)).thenReturn(userPoint);  // userPointTable.selectById() 호출 시 예상 결과값(userPoint)을 리턴하도록 설정
 
         // # when
@@ -125,10 +133,10 @@ public class PointServiceTest {
     void 포인트_충전_성공() {
 
         // # given
-        UserPoint userPoint = new UserPoint(userId, amount, updateMillis);  // userId로 조회 후 userPoint
+        UserPoint userPoint = createUserPoint(amount);  // userId로 조회 후 userPoint
         when(userPointTable.selectById(userId)).thenReturn(userPoint);
 
-        UserPoint updatedUserPoint = new UserPoint(userPoint.id(), userPoint.point() + amount, updateMillis);   // amount 충전 후 userPoint
+        UserPoint updatedUserPoint = createUserPoint(userPoint.point() + amount);   // amount 충전 후 userPoint
         when(userPointTable.insertOrUpdate(updatedUserPoint.id(), updatedUserPoint.point())).thenReturn(updatedUserPoint);
 
         // # when
@@ -146,10 +154,10 @@ public class PointServiceTest {
 
     /**
      * # Method설명 : pointService.use() 테스트 - 실패(사용 금액 0이하)
-     * # MethodName : 포인트_사용_실패_금액_0_이하
+     * # MethodName : 사용금액_0이하_예외발생
      **/
     @Test
-    void 포인트_사용_실패_금액_0_이하() {
+    void 사용금액_0이하_예외발생() {
 
         // # when
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
@@ -163,13 +171,13 @@ public class PointServiceTest {
 
     /**
      * # Method설명 : pointService.use() 테스트 - 실패(잔고 부족)
-     * # MethodName : 포인트_사용_실패_잔고부족
+     * # MethodName : 잔고보다_많은_포인트_사용_예외발생
      **/
     @Test
-    void 포인트_사용_실패_잔고부족() {
+    void 잔고보다_많은_포인트_사용_예외발생() {
 
         // # given
-        UserPoint userPoint = new UserPoint(userId, amount, updateMillis);   // userId로 조회 후 userPoint
+        UserPoint userPoint = createUserPoint(amount);  // userId로 조회 후 userPoint
         when(userPointTable.selectById(userId)).thenReturn(userPoint);
 
         // # when
@@ -180,8 +188,6 @@ public class PointServiceTest {
         // # then
         assertThat(exception.getMessage()).isEqualTo("잔고가 부족해 포인트를 사용할 수 없습니다.");
         assertThat(userPoint.point()).isLessThan(maxPoint); // 현재 포인트와 사용 포인트 비교 검증
-
-
     }
 
     /**
@@ -192,20 +198,20 @@ public class PointServiceTest {
     void 포인트_사용_성공() {
 
         // # given
-        UserPoint userPoint = new UserPoint(userId, amount, updateMillis);   // userId로 조회 후 userPoint
+        UserPoint userPoint = createUserPoint(amount);  // userId로 조회 후 userPoint
         when(userPointTable.selectById(userId)).thenReturn(userPoint);
 
         long newPoint = userPoint.point() - amount;
-        UserPoint updateUserPoint = new UserPoint(userPoint.id(), newPoint, updateMillis);    // amount 사용 후 userPoint
-        when(userPointTable.insertOrUpdate(userPoint.id(), newPoint)).thenReturn(updateUserPoint);
+        UserPoint updatedUserPoint = createUserPoint(newPoint); // amount 사용 후 userPoint
+        when(userPointTable.insertOrUpdate(userPoint.id(), newPoint)).thenReturn(updatedUserPoint);
 
         // # when
         UserPoint result = pointService.use(userId, amount);
 
-        assertThat(result.id()).isEqualTo(updateUserPoint.id());
-        assertThat(result.point()).isEqualTo(updateUserPoint.point());
+        assertThat(result.id()).isEqualTo(updatedUserPoint.id());
+        assertThat(result.point()).isEqualTo(updatedUserPoint.point());
 
         verify(userPointTable).selectById(userId);
-        verify(userPointTable).insertOrUpdate(userId, updateUserPoint.point());
+        verify(userPointTable).insertOrUpdate(userId, updatedUserPoint.point());
     }
 }
